@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS stock_movements;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS locations;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS tenants;
+DROP TABLE IF EXISTS stock_balances;
