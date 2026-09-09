@@ -7,7 +7,7 @@ CREATE TABLE tenants (
 );
 
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     name VARCHAR(50) NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants (id),
     email TEXT NOT NULL,
@@ -15,11 +15,11 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, email),
-    UNIQUE (tenant_id, id)
+     PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     name VARCHAR(50) NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants (id),
     code TEXT NOT NULL,
@@ -28,11 +28,11 @@ CREATE TABLE locations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, code),
-    UNIQUE (tenant_id, id)
+     PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE products (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     name VARCHAR(50) NOT NULL,
     code TEXT NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants (id),
@@ -41,11 +41,11 @@ CREATE TABLE products (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, code),
-    UNIQUE (tenant_id, id)
+     PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE stock_movements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     location_id UUID NOT NULL,
     product_id UUID NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE stock_movements (
     FOREIGN KEY (tenant_id, location_id) REFERENCES locations (tenant_id, id),
     FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id),
     FOREIGN KEY (tenant_id, user_id) REFERENCES users (tenant_id, id),
-    UNIQUE (tenant_id, id)
+    PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE stock_balances (
