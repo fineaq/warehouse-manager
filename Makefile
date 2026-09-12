@@ -1,10 +1,13 @@
-.PHONY: db-up db-down db-nuke migrate-up migrate-down migrate-new db-reset db-shell
+.PHONY: db-up db-down db-nuke migrate-up migrate-down migrate-new db-reset db-shell run
 
 include .env
 export
 
 DB_URL  = postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable
 MIGRATE = docker compose run --rm migrate -path /migrations -database "$(DB_URL)"
+
+DB_HOST ?= localhost
+DATABASE_URL = postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 
 db-up:
 	docker compose up -d --wait postgres
@@ -31,3 +34,6 @@ db-reset:
 
 db-shell:
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+
+run: db-up
+	go run ./cmd/api
