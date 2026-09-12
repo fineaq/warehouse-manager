@@ -15,33 +15,33 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, email),
-     PRIMARY KEY (tenant_id, id)
+    PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE locations (
     id UUID DEFAULT gen_random_uuid(),
-    name VARCHAR(50) NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants (id),
+    name VARCHAR(50) NOT NULL,
     code TEXT NOT NULL,
     address TEXT,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, code),
-     PRIMARY KEY (tenant_id, id)
+    PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE products (
     id UUID DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants (id),
     name VARCHAR(50) NOT NULL,
     code TEXT NOT NULL,
-    tenant_id UUID NOT NULL REFERENCES tenants (id),
     unit VARCHAR(100) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (tenant_id, code),
-     PRIMARY KEY (tenant_id, id)
+    PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE stock_movements (
@@ -49,9 +49,9 @@ CREATE TABLE stock_movements (
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     location_id UUID NOT NULL,
     product_id UUID NOT NULL,
+    user_id UUID NOT NULL,
     quantity NUMERIC(14,3) NOT NULL,
     reason VARCHAR(100) NOT NULL,
-    user_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     note TEXT,
 
