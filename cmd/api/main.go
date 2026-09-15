@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"time"
 
 	"warehouse-manager/internal/db"
-
-	"github.com/gin-gonic/gin"
+	"warehouse-manager/internal/router"
+	"warehouse-manager/internal/stock"
 )
 
 func main() {
@@ -28,19 +27,10 @@ func main() {
 	defer pool.Close()
 	log.Println("database connected")
 
-	r := gin.Default()
+	stockSvc := stock.NewService(pool)
+	stockH := stock.NewHandler(stockSvc)
 
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
+	r := router.NewRouter(stockH)
+	r.Run(":8080")
 
-	addr := os.Getenv("API_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-
-	log.Printf("listening on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatal(err)
-	}
 }
