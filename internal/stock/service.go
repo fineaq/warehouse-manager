@@ -53,3 +53,21 @@ func (s *Service) Receive(ctx context.Context, req ReceiveRequest) error {
 
 	return err
 }
+
+func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decimal, error) {
+	var stockOnHand decimal.Decimal
+
+	err := s.pool.QueryRow(ctx,
+		`SELECT on_hand
+     FROM stock_balances
+     WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
+		req.TenantID, req.ProductID, req.LocationID,
+	).Scan(&stockOnHand)
+
+	if err != nil {
+		return decimal.Zero, err
+	}
+
+	return stockOnHand, nil
+
+}
