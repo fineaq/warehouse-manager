@@ -222,28 +222,44 @@ func TestOnHand(t *testing.T) {
 		LocationID: locationID,
 	}
 
-	receive(20)
-
-	onHand, err := svc.OnHand(ctx, req)
-
-	if err != nil {
-		t.Fatalf("on hand: %v", err)
+	tests := []struct {
+		name         string
+		receiveFirst int64
+		want         int64
+	}{
+		{
+			name:         "no stock yet",
+			receiveFirst: 0,
+			want:         0,
+		},
+		{
+			name:         "after first receipt",
+			receiveFirst: 20,
+			want:         20,
+		},
+		{
+			// A second receipt at the same position accumulates, not replaces.
+			name:         "second receipt accumulates",
+			receiveFirst: 5,
+			want:         25,
+		},
 	}
 
-	if !onHand.Equal(decimal.NewFromInt(20)) {
-		t.Fatalf("expected on hand 20, got %s", onHand)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.receiveFirst != 0 {
+				receive(tc.receiveFirst)
+			}
 
-	// A second receipt at the same position must accumulate, not replace.
-	receive(5)
+			onHand, err := svc.OnHand(ctx, req)
 
-	onHand, err = svc.OnHand(ctx, req)
+			if err != nil {
+				t.Fatalf("on hand: %v", err)
+			}
 
-	if err != nil {
-		t.Fatalf("on hand after second receipt: %v", err)
-	}
-
-	if !onHand.Equal(decimal.NewFromInt(25)) {
-		t.Fatalf("expected on hand 25, got %s", onHand)
+			if !onHand.Equal(decimal.NewFromInt(tc.want)) {
+				t.Fatalf("expected on hand %d, got %s", tc.want, onHand)
+			}
+		})
 	}
 }
