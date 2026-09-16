@@ -2,21 +2,23 @@ package stock_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"warehouse-manager/internal/stock"
 	"warehouse-manager/internal/testdb"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
-func TestReceive(t *testing.T) {
-	pool := testdb.New(t)
+func seed(t *testing.T, pool *pgxpool.Pool) (tenantID, userID, locationID, productID uuid.UUID) {
+	t.Helper()
 
-	tenantID := uuid.New()
-	userID := uuid.New()
-	locationID := uuid.New()
-	productID := uuid.New()
+	tenantID = uuid.New()
+	userID = uuid.New()
+	locationID = uuid.New()
+	productID = uuid.New()
 
 	ctx := context.Background()
 
@@ -52,9 +54,19 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("seed products: %v", err)
 	}
 
+	return tenantID, userID, locationID, productID
+}
+
+func TestReceive(t *testing.T) {
+	pool := testdb.New(t)
+
+	ctx := context.Background()
+
+	tenantID, userID, locationID, productID := seed(t, pool)
+
 	svc := stock.NewService(pool)
 
-	err = svc.Receive(ctx, stock.ReceiveRequest{
+	err := svc.Receive(ctx, stock.ReceiveRequest{
 		TenantID:   tenantID,
 		UserID:     userID,
 		ProductID:  productID,
@@ -104,4 +116,77 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("expected movement qty 20, got %s", movementQty)
 	}
 
+}
+
+func TestReceiveInvalid(t *testing.T) {
+	pool := testdb.New(t)
+
+	ctx := context.Background()
+
+	tenantID, userID, locationID, productID := seed(t, pool)
+
+	svc := stock.NewService(pool)
+
+	tests := []struct {
+		name    string
+		req     stock.ReceiveRequest
+		wantErr error
+	}{
+		{
+			name: "zero quantity",
+			req: stock.ReceiveRequest{
+				TenantID:   tenantID,
+				UserID:     userID,
+				ProductID:  productID,
+				LocationID: locationID,
+				Quantity:   decimal.Zero,
+			},
+			wantErr: stock.ErrInvalidQuantity,
+		},
+		{
+			name: "negative quantity",
+			req: stock.ReceiveRequest{
+				TenantID:   tenantID,
+				UserID:     userID,
+				ProductID:  productID,
+				LocationID: locationID,
+				Quantity:   decimal.NewFromInt(-5),
+			},
+			wantErr: stock.ErrInvalidQuantity,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.Receive(ctx, tc.req)
+
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected error %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+
+	var movementCount, balanceCount int
+
+	err := pool.QueryRow(ctx, `SELECT count(*) FROM stock_movements`).Scan(&movementCount)
+	if err != nil {
+		t.Fatalf("query movements: %v", err)
+	}
+
+	if movementCount != 0 {
+		t.Fatalf("expected 0 movements, got %d", movementCount)
+	}
+
+	err = pool.QueryRow(ctx, `SELECT count(*) FROM stock_balances`).Scan(&balanceCount)
+	if err != nil {
+		t.Fatalf("query balances: %v", err)
+	}
+
+	if balanceCount != 0 {
+		t.Fatalf("expected 0 balances, got %d", balanceCount)
+	}
 }
