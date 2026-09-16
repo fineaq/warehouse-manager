@@ -16,6 +16,16 @@ type ReceiveRequest struct {
 	Note       string
 }
 
+type OnHandRequest struct {
+	TenantID   uuid.UUID
+	LocationID uuid.UUID
+	ProductID  uuid.UUID
+}
+
+type OnHandResponse struct {
+	Quantity decimal.Decimal `json:"quantity"`
+}
+
 var (
 	ErrInvalidQuantity = errors.New("quantity must be greater than zero")
 	ErrProductNotFound = errors.New("product not found")
