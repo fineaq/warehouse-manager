@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"warehouse-manager/internal/db"
 
@@ -65,6 +66,9 @@ func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decima
 	).Scan(&stockOnHand)
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return decimal.Zero, nil
+		}
 		return decimal.Zero, err
 	}
 
