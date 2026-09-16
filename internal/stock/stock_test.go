@@ -190,3 +190,60 @@ func TestReceiveInvalid(t *testing.T) {
 		t.Fatalf("expected 0 balances, got %d", balanceCount)
 	}
 }
+
+func TestOnHand(t *testing.T) {
+	pool := testdb.New(t)
+
+	ctx := context.Background()
+
+	tenantID, userID, locationID, productID := seed(t, pool)
+
+	svc := stock.NewService(pool)
+
+	receive := func(qty int64) {
+		t.Helper()
+
+		err := svc.Receive(ctx, stock.ReceiveRequest{
+			TenantID:   tenantID,
+			UserID:     userID,
+			ProductID:  productID,
+			LocationID: locationID,
+			Quantity:   decimal.NewFromInt(qty),
+		})
+
+		if err != nil {
+			t.Fatalf("receive %d: %v", qty, err)
+		}
+	}
+
+	req := stock.OnHandRequest{
+		TenantID:   tenantID,
+		ProductID:  productID,
+		LocationID: locationID,
+	}
+
+	receive(20)
+
+	onHand, err := svc.OnHand(ctx, req)
+
+	if err != nil {
+		t.Fatalf("on hand: %v", err)
+	}
+
+	if !onHand.Equal(decimal.NewFromInt(20)) {
+		t.Fatalf("expected on hand 20, got %s", onHand)
+	}
+
+	// A second receipt at the same position must accumulate, not replace.
+	receive(5)
+
+	onHand, err = svc.OnHand(ctx, req)
+
+	if err != nil {
+		t.Fatalf("on hand after second receipt: %v", err)
+	}
+
+	if !onHand.Equal(decimal.NewFromInt(25)) {
+		t.Fatalf("expected on hand 25, got %s", onHand)
+	}
+}
