@@ -22,9 +22,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1.0
+          version: v2.13.2
 
       - name: Run tests with race detection
         run: go test -race -timeout 300s ./...
