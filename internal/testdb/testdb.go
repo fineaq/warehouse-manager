@@ -45,7 +45,7 @@ func Main(m *testing.M) {
 	}
 
 	if container != nil {
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}
 
 	os.Exit(code)

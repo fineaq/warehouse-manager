@@ -31,6 +31,8 @@ func main() {
 	stockH := stock.NewHandler(stockSvc)
 
 	r := router.NewRouter(stockH)
-	r.Run(":8080")
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("server: %v", err)
+	}
 
 }
