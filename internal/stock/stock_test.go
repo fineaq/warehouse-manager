@@ -172,7 +172,9 @@ func TestReceiveInvalid(t *testing.T) {
 
 	var movementCount, balanceCount int
 
-	err := pool.QueryRow(ctx, `SELECT count(*) FROM stock_movements`).Scan(&movementCount)
+	err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
+		tenantID).Scan(&movementCount)
 	if err != nil {
 		t.Fatalf("query movements: %v", err)
 	}
@@ -181,7 +183,9 @@ func TestReceiveInvalid(t *testing.T) {
 		t.Fatalf("expected 0 movements, got %d", movementCount)
 	}
 
-	err = pool.QueryRow(ctx, `SELECT count(*) FROM stock_balances`).Scan(&balanceCount)
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM stock_balances WHERE tenant_id=$1`,
+		tenantID).Scan(&balanceCount)
 	if err != nil {
 		t.Fatalf("query balances: %v", err)
 	}
@@ -262,4 +266,8 @@ func TestOnHand(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMain(m *testing.M) {
+	testdb.Main(m)
 }

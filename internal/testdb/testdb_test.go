@@ -21,3 +21,7 @@ func TestNew(t *testing.T) {
 	}
 	t.Logf("found %d tables", count)
 }
+
+func TestMain(m *testing.M) {
+	Main(m)
+}
