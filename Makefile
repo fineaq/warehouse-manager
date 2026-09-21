@@ -1,4 +1,4 @@
-.PHONY: db-up db-down db-nuke migrate-up migrate-down migrate-new db-reset db-shell run
+.PHONY: db-up db-down db-nuke migrate-up migrate-down migrate-new db-reset db-shell run seed
 
 include .env
 export
@@ -37,3 +37,6 @@ db-shell:
 
 run: db-up
 	go run ./cmd/api
+
+seed: migrate-up
+	go run ./cmd/seed
