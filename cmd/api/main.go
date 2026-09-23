@@ -43,7 +43,17 @@ func main() {
 	authH := auth.NewHandler(authSvc)
 	stockH := stock.NewHandler(stockSvc)
 
-	r := router.NewRouter(stockH, authH)
+	publicRegistrars := []router.RouteRegistrar{
+		authH,
+	}
+
+	protectedRegistrars := []router.RouteRegistrar{
+		stockH,
+	}
+
+	r := router.NewRouter(authSvc,
+		publicRegistrars,
+		protectedRegistrars)
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("server: %v", err)
 	}
