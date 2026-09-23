@@ -15,12 +15,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// A fixed secret keeps the test independent of anyone's .env.
 var testSecret = []byte("test-only-jwt-secret-at-least-32-bytes-long")
 
 // seedUser creates a tenant and a user whose password is known, and returns
-// their IDs. The email is unique per call: login looks users up by email
-// alone, so two users sharing an email would make the lookup ambiguous.
+// their IDs.
 func seedUser(t *testing.T, pool *pgxpool.Pool, password string) (email string, tenantID, userID uuid.UUID) {
 	t.Helper()
 
@@ -58,7 +56,7 @@ func TestLogin(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
 
-	const password = "correct-horse-battery-staple"
+	const password = "thisisapassword"
 	email, tenantID, userID := seedUser(t, pool, password)
 
 	svc := auth.NewService(pool, testSecret)
@@ -68,8 +66,6 @@ func TestLogin(t *testing.T) {
 		t.Fatalf("login: %v", err)
 	}
 
-	// A non-empty string proves nothing. Parse it back with the same secret
-	// and check it identifies the seeded user.
 	claims := &auth.Claims{}
 	_, err = jwt.ParseWithClaims(token, claims,
 		func(*jwt.Token) (any, error) { return testSecret, nil },
@@ -101,8 +97,6 @@ func TestLoginInvalid(t *testing.T) {
 
 	svc := auth.NewService(pool, testSecret)
 
-	// Both cases must fail the same way: the caller must not be able to tell
-	// an unknown email from a wrong password.
 	tests := []struct {
 		name string
 		req  auth.LoginRequest
@@ -129,6 +123,84 @@ func TestLoginInvalid(t *testing.T) {
 				t.Fatalf("expected no token, got %q", token)
 			}
 		})
+	}
+}
+
+func TestValidateToken(t *testing.T) {
+	svc := auth.NewService(nil, testSecret)
+
+	userID, tenantID := uuid.New(), uuid.New()
+
+	claim := validClaims(userID, tenantID, 15*time.Minute)
+	newToken := createToken(t, jwt.SigningMethodHS256, testSecret, claim)
+
+	claims, err := svc.ValidateToken(newToken)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	if claims.Subject != userID.String() {
+		t.Fatalf("expected sub %s, got %s", userID, claims.Subject)
+	}
+
+	if claims.TenantID != tenantID.String() {
+		t.Fatalf("expected tenant_id %s, got %s", tenantID, claims.TenantID)
+	}
+}
+
+func TestValidateTokenInvalid(t *testing.T) {
+	svc := auth.NewService(nil, testSecret)
+
+	userID, tenantID := uuid.New(), uuid.New()
+	valid := validClaims(userID, tenantID, time.Minute)
+	expired := validClaims(userID, tenantID, -time.Minute)
+
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty", ""},
+		{"garbage", "not-a-jwt"},
+		{"wrong secret", createToken(t, jwt.SigningMethodHS256,
+			[]byte("another-secret-at-least-32-bytes-long"), valid)},
+		{"expired", createToken(t, jwt.SigningMethodHS256, testSecret, expired)},
+		{"alg none", createToken(t, jwt.SigningMethodNone,
+			jwt.UnsafeAllowNoneSignatureType, valid)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			claims, err := svc.ValidateToken(tc.token)
+			if err == nil {
+				t.Fatalf("expected an error, got claims %+v", claims)
+			}
+			if claims != nil {
+				t.Fatalf("expected nil claims, got %+v", claims)
+			}
+		})
+	}
+}
+
+func createToken(t *testing.T, method jwt.SigningMethod, secret any, claim auth.Claims) string {
+	t.Helper()
+
+	signed, err := jwt.NewWithClaims(method, claim).SignedString(secret)
+
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	return signed
+}
+
+func validClaims(userID, tenantID uuid.UUID, ttl time.Duration) auth.Claims {
+	return auth.Claims{
+		TenantID: tenantID.String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
+		},
 	}
 }
 
