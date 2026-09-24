@@ -15,7 +15,9 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -35,6 +37,63 @@ func New(t *testing.T) *pgxpool.Pool {
 	}
 
 	return pool
+}
+
+const Password = "test-password"
+
+type Account struct {
+	Email      string
+	TenantID   uuid.UUID
+	UserID     uuid.UUID
+	LocationID uuid.UUID
+	ProductID  uuid.UUID
+}
+
+// SeedAccount creates a tenant, a user who can sign in, a location and a
+// product.
+func SeedAccount(t *testing.T, pool *pgxpool.Pool) Account {
+	t.Helper()
+
+	ctx := context.Background()
+	acc := Account{Email: fmt.Sprintf("seed-%s@test.co", uuid.New())}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(Password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO tenants (name, email) VALUES ('test_tenant', $1) RETURNING id`,
+		acc.Email).Scan(&acc.TenantID)
+	if err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO users (tenant_id, name, email, password_hash)
+		 VALUES ($1, 'test_user', $2, $3) RETURNING id`,
+		acc.TenantID, acc.Email, string(hash)).Scan(&acc.UserID)
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO locations (tenant_id, name, code)
+		 VALUES ($1, 'test_location', $2) RETURNING id`,
+		acc.TenantID, acc.Email).Scan(&acc.LocationID)
+	if err != nil {
+		t.Fatalf("seed location: %v", err)
+	}
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO products (tenant_id, name, code, unit)
+		 VALUES ($1, 'test_product', $2, 'pcs') RETURNING id`,
+		acc.TenantID, acc.Email).Scan(&acc.ProductID)
+	if err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+
+	return acc
 }
 
 func Main(m *testing.M) {
