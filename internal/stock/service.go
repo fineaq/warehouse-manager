@@ -7,6 +7,7 @@ import (
 	"warehouse-manager/internal/db"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
@@ -50,9 +51,11 @@ func (s *Service) Receive(ctx context.Context, req ReceiveRequest) error {
 		return nil
 	}
 
-	err := db.WithTx(ctx, s.pool, fn)
+	if err := db.WithTx(ctx, s.pool, fn); err != nil {
+		return translateFKViolation(err)
+	}
 
-	return err
+	return nil
 }
 
 func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decimal, error) {
@@ -74,4 +77,26 @@ func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decima
 
 	return stockOnHand, nil
 
+}
+
+func translateFKViolation(err error) error {
+	var pgErr *pgconn.PgError
+
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		return err
+	}
+
+	switch pgErr.ConstraintName {
+	case "stock_movements_tenant_id_product_id_fkey",
+		"stock_balances_tenant_id_product_id_fkey":
+		return fmt.Errorf("%w: %s", ErrProductNotFound, pgErr.ConstraintName)
+
+	case "stock_movements_tenant_id_location_id_fkey",
+		"stock_balances_tenant_id_location_id_fkey":
+		return fmt.Errorf("%w: %s", ErrLocationNotFound, pgErr.ConstraintName)
+
+	case "stock_movements_tenant_id_user_id_fkey":
+		return fmt.Errorf("%w: %s", ErrUserNotFound, pgErr.ConstraintName)
+	}
+	return err
 }

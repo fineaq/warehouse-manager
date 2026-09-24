@@ -34,6 +34,8 @@ type OnHandResponse struct {
 }
 
 var (
-	ErrInvalidQuantity = errors.New("quantity must be greater than zero")
-	ErrProductNotFound = errors.New("product not found")
+	ErrInvalidQuantity  = errors.New("quantity must be greater than zero")
+	ErrProductNotFound  = errors.New("product not found")
+	ErrLocationNotFound = errors.New("location not found")
+	ErrUserNotFound     = errors.New("user not found")
 )

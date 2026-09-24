@@ -8,114 +8,92 @@ import (
 	"warehouse-manager/internal/testdb"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
-
-func seed(t *testing.T, pool *pgxpool.Pool) (tenantID, userID, locationID, productID uuid.UUID) {
-	t.Helper()
-
-	tenantID = uuid.New()
-	userID = uuid.New()
-	locationID = uuid.New()
-	productID = uuid.New()
-
-	ctx := context.Background()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, email) VALUES ($1, 'test_tenant', 'test_tenant@test.co')`,
-		tenantID)
-
-	if err != nil {
-		t.Fatalf("seed tenant: %v", err)
-	}
-
-	_, err = pool.Exec(ctx,
-		`INSERT INTO users (id, name, tenant_id, email, password_hash) VALUES ($1, 'test_user', $2, 'test_tenant@test.co', '12345')`,
-		userID, tenantID)
-
-	if err != nil {
-		t.Fatalf("seed users: %v", err)
-	}
-
-	_, err = pool.Exec(ctx,
-		`INSERT INTO locations (id, name, tenant_id, code, address) VALUES ($1, 'test_location', $2, 'test_code', 'test_address')`,
-		locationID, tenantID)
-
-	if err != nil {
-		t.Fatalf("seed locations: %v", err)
-	}
-
-	_, err = pool.Exec(ctx,
-		`INSERT INTO products (id, tenant_id, name, code, unit) VALUES ($1, $2, 'test_product', 'test_code', 'test_unit')`,
-		productID, tenantID)
-
-	if err != nil {
-		t.Fatalf("seed products: %v", err)
-	}
-
-	return tenantID, userID, locationID, productID
-}
 
 func TestReceive(t *testing.T) {
 	pool := testdb.New(t)
 
 	ctx := context.Background()
 
-	tenantID, userID, locationID, productID := seed(t, pool)
+	acc := testdb.SeedAccount(t, pool)
 
 	svc := stock.NewService(pool)
 
-	err := svc.Receive(ctx, stock.ReceiveRequest{
-		TenantID:   tenantID,
-		UserID:     userID,
-		ProductID:  productID,
-		LocationID: locationID,
-		Quantity:   decimal.NewFromInt(20),
-	})
-
-	if err != nil {
-		t.Fatalf("receive : %v", err)
+	tests := []struct {
+		name          string
+		quantity      int64
+		wantOnHand    int64
+		wantMovements int
+	}{
+		{
+			name:          "first receipt",
+			quantity:      20,
+			wantOnHand:    20,
+			wantMovements: 1,
+		},
+		{
+			name:          "second receipt accumulates",
+			quantity:      5,
+			wantOnHand:    25,
+			wantMovements: 2,
+		},
 	}
 
-	var onhand decimal.Decimal
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.Receive(ctx, stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  acc.ProductID,
+				LocationID: acc.LocationID,
+				Quantity:   decimal.NewFromInt(tc.quantity),
+			})
 
-	err = pool.QueryRow(ctx,
-		`SELECT on_hand FROM stock_balances
-	WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
-		tenantID, productID, locationID,
-	).Scan(&onhand)
+			if err != nil {
+				t.Fatalf("receive : %v", err)
+			}
 
-	if err != nil {
-		t.Fatalf("query balance: %v", err)
+			var onhand decimal.Decimal
+
+			err = pool.QueryRow(ctx,
+				`SELECT on_hand FROM stock_balances
+			WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
+				acc.TenantID, acc.ProductID, acc.LocationID,
+			).Scan(&onhand)
+
+			if err != nil {
+				t.Fatalf("query balance: %v", err)
+			}
+
+			if !onhand.Equal(decimal.NewFromInt(tc.wantOnHand)) {
+				t.Fatalf("expected on_hand %d got %s", tc.wantOnHand, onhand)
+			}
+
+			var movementCount int
+			var movementQty decimal.Decimal
+
+			err = pool.QueryRow(ctx,
+				`SELECT count(*), coalesce(sum(quantity), 0)
+			 FROM stock_movements
+			 WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
+				acc.TenantID, acc.ProductID, acc.LocationID,
+			).Scan(&movementCount, &movementQty)
+
+			if err != nil {
+				t.Fatalf("query movements: %v", err)
+			}
+
+			if movementCount != tc.wantMovements {
+				t.Fatalf("expected %d movements, got %d", tc.wantMovements, movementCount)
+			}
+
+			// The movements are the ledger; their sum must always match the balance.
+			if !movementQty.Equal(onhand) {
+				t.Fatalf("expected movements to sum to on_hand %s, got %s", onhand, movementQty)
+			}
+		})
 	}
-
-	if !onhand.Equal(decimal.NewFromInt(20)) {
-		t.Fatalf("expected on_hand 20 got %s", onhand)
-	}
-
-	var movementCount int
-	var movementQty decimal.Decimal
-
-	err = pool.QueryRow(ctx,
-		`SELECT count(*), coalesce(sum(quantity), 0)
-     FROM stock_movements
-     WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
-		tenantID, productID, locationID,
-	).Scan(&movementCount, &movementQty)
-
-	if err != nil {
-		t.Fatalf("query movements: %v", err)
-	}
-
-	if movementCount != 1 {
-		t.Fatalf("expected 1 movement, got %d", movementCount)
-	}
-
-	if !movementQty.Equal(decimal.NewFromInt(20)) {
-		t.Fatalf("expected movement qty 20, got %s", movementQty)
-	}
-
 }
 
 func TestReceiveInvalid(t *testing.T) {
@@ -123,7 +101,7 @@ func TestReceiveInvalid(t *testing.T) {
 
 	ctx := context.Background()
 
-	tenantID, userID, locationID, productID := seed(t, pool)
+	acc := testdb.SeedAccount(t, pool)
 
 	svc := stock.NewService(pool)
 
@@ -135,10 +113,10 @@ func TestReceiveInvalid(t *testing.T) {
 		{
 			name: "zero quantity",
 			req: stock.ReceiveRequest{
-				TenantID:   tenantID,
-				UserID:     userID,
-				ProductID:  productID,
-				LocationID: locationID,
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  acc.ProductID,
+				LocationID: acc.LocationID,
 				Quantity:   decimal.Zero,
 			},
 			wantErr: stock.ErrInvalidQuantity,
@@ -146,13 +124,46 @@ func TestReceiveInvalid(t *testing.T) {
 		{
 			name: "negative quantity",
 			req: stock.ReceiveRequest{
-				TenantID:   tenantID,
-				UserID:     userID,
-				ProductID:  productID,
-				LocationID: locationID,
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  acc.ProductID,
+				LocationID: acc.LocationID,
 				Quantity:   decimal.NewFromInt(-5),
 			},
 			wantErr: stock.ErrInvalidQuantity,
+		},
+		{
+			name: "unknown product",
+			req: stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  uuid.New(),
+				LocationID: acc.LocationID,
+				Quantity:   decimal.NewFromInt(20),
+			},
+			wantErr: stock.ErrProductNotFound,
+		},
+		{
+			name: "unknown location",
+			req: stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  acc.ProductID,
+				LocationID: uuid.New(),
+				Quantity:   decimal.NewFromInt(20),
+			},
+			wantErr: stock.ErrLocationNotFound,
+		},
+		{
+			name: "unknown user",
+			req: stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     uuid.New(),
+				ProductID:  acc.ProductID,
+				LocationID: acc.LocationID,
+				Quantity:   decimal.NewFromInt(20),
+			},
+			wantErr: stock.ErrUserNotFound,
 		},
 	}
 
@@ -174,7 +185,7 @@ func TestReceiveInvalid(t *testing.T) {
 
 	err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
-		tenantID).Scan(&movementCount)
+		acc.TenantID).Scan(&movementCount)
 	if err != nil {
 		t.Fatalf("query movements: %v", err)
 	}
@@ -185,7 +196,7 @@ func TestReceiveInvalid(t *testing.T) {
 
 	err = pool.QueryRow(ctx,
 		`SELECT count(*) FROM stock_balances WHERE tenant_id=$1`,
-		tenantID).Scan(&balanceCount)
+		acc.TenantID).Scan(&balanceCount)
 	if err != nil {
 		t.Fatalf("query balances: %v", err)
 	}
@@ -200,7 +211,7 @@ func TestOnHand(t *testing.T) {
 
 	ctx := context.Background()
 
-	tenantID, userID, locationID, productID := seed(t, pool)
+	acc := testdb.SeedAccount(t, pool)
 
 	svc := stock.NewService(pool)
 
@@ -208,10 +219,10 @@ func TestOnHand(t *testing.T) {
 		t.Helper()
 
 		err := svc.Receive(ctx, stock.ReceiveRequest{
-			TenantID:   tenantID,
-			UserID:     userID,
-			ProductID:  productID,
-			LocationID: locationID,
+			TenantID:   acc.TenantID,
+			UserID:     acc.UserID,
+			ProductID:  acc.ProductID,
+			LocationID: acc.LocationID,
 			Quantity:   decimal.NewFromInt(qty),
 		})
 
@@ -221,9 +232,9 @@ func TestOnHand(t *testing.T) {
 	}
 
 	req := stock.OnHandRequest{
-		TenantID:   tenantID,
-		ProductID:  productID,
-		LocationID: locationID,
+		TenantID:   acc.TenantID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
 	}
 
 	tests := []struct {
