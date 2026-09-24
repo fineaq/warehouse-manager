@@ -2,6 +2,7 @@ package stock
 
 import (
 	"net/http"
+	"warehouse-manager/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,10 +22,32 @@ func (h Handler) RegisterRoutes(rg *gin.RouterGroup) {
 }
 
 func (h *Handler) Receive(c *gin.Context) {
-	var req ReceiveRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+
+	var recJSON receiveJSON
+	if err := c.ShouldBindJSON(&recJSON); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
+	}
+
+	userID, ok := middleware.UserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	tenantID, ok := middleware.TenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	req := ReceiveRequest{
+		TenantID:   tenantID,
+		UserID:     userID,
+		LocationID: recJSON.LocationID,
+		ProductID:  recJSON.ProductID,
+		Quantity:   recJSON.Quantity,
+		Note:       recJSON.Note,
 	}
 
 	err := h.service.Receive(c.Request.Context(), req)
@@ -37,9 +60,9 @@ func (h *Handler) Receive(c *gin.Context) {
 }
 
 func (h *Handler) OnHand(c *gin.Context) {
-	tenantID, err := uuid.Parse(c.Query("tenant_id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tenant_id"})
+	tenantID, ok := middleware.TenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
