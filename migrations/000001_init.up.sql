@@ -26,6 +26,8 @@ CREATE TABLE locations (
     address TEXT,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    note TEXT,
 
     UNIQUE (tenant_id, code),
     PRIMARY KEY (tenant_id, id)
@@ -39,17 +41,19 @@ CREATE TABLE products (
     unit VARCHAR(100) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    note TEXT,
 
     UNIQUE (tenant_id, code),
     PRIMARY KEY (tenant_id, id)
 );
 
 CREATE TABLE stock_movements (
-    id UUID DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id),
+    id UUID DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
     location_id UUID NOT NULL,
     product_id UUID NOT NULL,
-    user_id UUID NOT NULL,
     quantity NUMERIC(14,3) NOT NULL,
     reason VARCHAR(100) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
