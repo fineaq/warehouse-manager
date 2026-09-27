@@ -88,7 +88,7 @@ func TestStockEndpointsRejectRequestWithoutToken(t *testing.T) {
 	receipt := fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":20}`,
 		acc.LocationID, acc.ProductID)
 
-	onHand := fmt.Sprintf("/v1/stock/on-hand?product_id=%s&location_id=%s",
+	onHand := fmt.Sprintf("/v1/on-hand?product_id=%s&location_id=%s",
 		acc.ProductID, acc.LocationID)
 
 	tests := []struct {
@@ -98,8 +98,8 @@ func TestStockEndpointsRejectRequestWithoutToken(t *testing.T) {
 		body   string
 		token  string
 	}{
-		{"receipt without a token", http.MethodPost, "/v1/stock/receipts", receipt, ""},
-		{"receipt with a token that is not a JWT", http.MethodPost, "/v1/stock/receipts", receipt, "not-a-token"},
+		{"receipt without a token", http.MethodPost, "/v1/receipts", receipt, ""},
+		{"receipt with a token that is not a JWT", http.MethodPost, "/v1/receipts", receipt, "not-a-token"},
 		{"on hand without a token", http.MethodGet, onHand, "", ""},
 	}
 
@@ -141,10 +141,10 @@ func TestReceiveStoresIdentityFromToken(t *testing.T) {
 		`{"location_id":%q,"product_id":%q,"quantity":20,"tenant_id":%q,"user_id":%q}`,
 		acc.LocationID, acc.ProductID, otherTenantID, otherUserID)
 
-	w := do(t, engine, http.MethodPost, "/v1/stock/receipts", body, token)
+	w := do(t, engine, http.MethodPost, "/v1/receipts", body, token)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var storedTenantID, storedUserID uuid.UUID
@@ -187,13 +187,13 @@ func TestReceiveThenReadOnHand(t *testing.T) {
 	receipt := fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":20}`,
 		acc.LocationID, acc.ProductID)
 
-	w := do(t, engine, http.MethodPost, "/v1/stock/receipts", receipt, token)
+	w := do(t, engine, http.MethodPost, "/v1/receipts", receipt, token)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("receipt: expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("receipt: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	onHand := fmt.Sprintf("/v1/stock/on-hand?product_id=%s&location_id=%s",
+	onHand := fmt.Sprintf("/v1/on-hand?product_id=%s&location_id=%s",
 		acc.ProductID, acc.LocationID)
 
 	w = do(t, engine, http.MethodGet, onHand, "", token)
@@ -239,7 +239,7 @@ func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := do(t, engine, http.MethodPost, "/v1/stock/receipts", tc.body, token)
+			w := do(t, engine, http.MethodPost, "/v1/receipts", tc.body, token)
 
 			if w.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())

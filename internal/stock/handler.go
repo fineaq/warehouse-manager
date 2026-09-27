@@ -19,12 +19,11 @@ func NewHandler(service *Service) *Handler {
 }
 
 func (h Handler) RegisterRoutes(rg *gin.RouterGroup) {
-	rg.POST("/stock/receipts", h.Receive)
-	rg.GET("/stock/on-hand", h.OnHand)
+	rg.POST("/receipts", h.HandleReceive)
+	rg.GET("/on-hand", h.HandleOnHand)
 }
 
-func (h *Handler) Receive(c *gin.Context) {
-
+func (h *Handler) HandleReceive(c *gin.Context) {
 	var recJSON receiveJSON
 	if err := c.ShouldBindJSON(&recJSON); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -52,16 +51,15 @@ func (h *Handler) Receive(c *gin.Context) {
 		Note:       recJSON.Note,
 	}
 
-	err := h.service.Receive(c.Request.Context(), req)
-	if err != nil {
+	if err := h.service.Receive(c.Request.Context(), req); err != nil {
 		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusCreated, gin.H{"status": "ok"})
 }
 
-func (h *Handler) OnHand(c *gin.Context) {
+func (h *Handler) HandleOnHand(c *gin.Context) {
 	tenantID, ok := middleware.TenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
