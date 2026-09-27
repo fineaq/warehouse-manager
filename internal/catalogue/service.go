@@ -3,6 +3,7 @@ package catalogue
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +21,7 @@ func NewService(pool *pgxpool.Pool) *Service {
 	}
 }
 
-func (s *Service) NewProduct(ctx context.Context, req NewProductRequest) error {
+func (s *Service) CreateProduct(ctx context.Context, req CreateProductRequest) error {
 
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO products (tenant_id, name, code, unit, note) VALUES ($1, $2, $3, $4, $5)`,
@@ -31,13 +32,14 @@ func (s *Service) NewProduct(ctx context.Context, req NewProductRequest) error {
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrDuplicateCode
 		}
+		slog.ErrorContext(ctx, "create product", "error", err, "tenant_id", req.TenantID, "code", req.Code)
 		return err
 	}
 
 	return nil
 }
 
-func (s *Service) NewLocation(ctx context.Context, req NewLocationRequest) error {
+func (s *Service) CreateLocation(ctx context.Context, req CreateLocationRequest) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO locations (tenant_id, name, code, address, note) VALUES ($1, $2, $3, $4, $5)`,
 		req.TenantID, req.Name, req.Code, req.Address, req.Note)
@@ -47,6 +49,7 @@ func (s *Service) NewLocation(ctx context.Context, req NewLocationRequest) error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrDuplicateCode
 		}
+		slog.ErrorContext(ctx, "create location", "error", err, "tenant_id", req.TenantID, "code", req.Code)
 		return err
 	}
 
@@ -62,11 +65,13 @@ func (s *Service) ListLocation(ctx context.Context, tenantId uuid.UUID) ([]Locat
 	)
 
 	if err != nil {
+		slog.ErrorContext(ctx, "list locations", "error", err, "tenant_id", tenantId)
 		return nil, err
 	}
 
 	locations, err := pgx.CollectRows(rows, pgx.RowToStructByName[Location])
 	if err != nil {
+		slog.ErrorContext(ctx, "list locations", "error", err, "tenant_id", tenantId)
 		return nil, err
 	}
 
@@ -83,11 +88,13 @@ func (s *Service) ListProduct(ctx context.Context, tenantId uuid.UUID) ([]Produc
 	)
 
 	if err != nil {
+		slog.ErrorContext(ctx, "list products", "error", err, "tenant_id", tenantId)
 		return nil, err
 	}
 
 	products, err := pgx.CollectRows(rows, pgx.RowToStructByName[Product])
 	if err != nil {
+		slog.ErrorContext(ctx, "list products", "error", err, "tenant_id", tenantId)
 		return nil, err
 	}
 
@@ -106,6 +113,7 @@ func (s *Service) UpdateProduct(ctx context.Context, req UpdateProductRequest) e
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrDuplicateCode
 		}
+		slog.ErrorContext(ctx, "update product", "error", err, "tenant_id", req.TenantID, "id", req.Id)
 		return err
 	}
 
@@ -128,6 +136,7 @@ func (s *Service) UpdateLocation(ctx context.Context, req UpdateLocationRequest)
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrDuplicateCode
 		}
+		slog.ErrorContext(ctx, "update location", "error", err, "tenant_id", req.TenantID, "id", req.Id)
 		return err
 	}
 

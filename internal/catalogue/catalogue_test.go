@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestNewProduct(t *testing.T) {
+func TestCreateProduct(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
 	acc := testdb.SeedAccount(t, pool)
@@ -21,16 +21,15 @@ func TestNewProduct(t *testing.T) {
 	unit := "test_unit"
 	note := "test_note"
 
-	req := catalogue.NewProductRequest{
+	err := svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: acc.TenantID,
 		Name:     productName,
 		Code:     productCode,
 		Unit:     unit,
 		Note:     note,
-	}
-
-	if err := svc.NewProduct(ctx, req); err != nil {
-		t.Fatalf("NewProduct: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("new product: %v", err)
 	}
 
 	var storedName, storedCode, storedUnit, storedNote string
@@ -61,27 +60,27 @@ func TestNewProduct(t *testing.T) {
 	}
 }
 
-func TestNewProductInvalid(t *testing.T) {
+func TestCreateProductInvalid(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
 	acc := testdb.SeedAccount(t, pool)
 	svc := catalogue.NewService(pool)
 
-	req := catalogue.NewProductRequest{
+	req := catalogue.CreateProductRequest{
 		TenantID: acc.TenantID,
 		Name:     "test_product",
 		Code:     "duplicate_code",
 		Unit:     "test_unit",
 	}
 
-	if err := svc.NewProduct(ctx, req); err != nil {
-		t.Fatalf("first NewProduct: %v", err)
+	if err := svc.CreateProduct(ctx, req); err != nil {
+		t.Fatalf("first new product: %v", err)
 	}
 
 	// A second product with the same code, even under a different name.
 	req.Name = "another_product"
 
-	err := svc.NewProduct(ctx, req)
+	err := svc.CreateProduct(ctx, req)
 	if !errors.Is(err, catalogue.ErrDuplicateCode) {
 		t.Fatalf("expected %v, got %v", catalogue.ErrDuplicateCode, err)
 	}
@@ -108,7 +107,7 @@ func TestListProduct(t *testing.T) {
 	svc := catalogue.NewService(pool)
 
 	// SeedAccount already created one active product.
-	err := svc.NewProduct(ctx, catalogue.NewProductRequest{
+	err := svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: acc.TenantID,
 		Name:     "active_product",
 		Code:     "active_code",
@@ -146,7 +145,7 @@ func TestListProductInvalid(t *testing.T) {
 	mine := testdb.SeedAccount(t, pool)
 	other := testdb.SeedAccount(t, pool)
 
-	err := svc.NewProduct(ctx, catalogue.NewProductRequest{
+	err := svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: other.TenantID,
 		Name:     "other_tenant_product",
 		Code:     "other_tenant_code",
@@ -156,7 +155,7 @@ func TestListProductInvalid(t *testing.T) {
 		t.Fatalf("new product for the other tenant: %v", err)
 	}
 
-	err = svc.NewProduct(ctx, catalogue.NewProductRequest{
+	err = svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: mine.TenantID,
 		Name:     "deactivated_product",
 		Code:     "inactive_code",
@@ -219,10 +218,10 @@ func TestListProductInvalid(t *testing.T) {
 func TestUpdateProduct(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
-	svc := catalogue.NewService(pool)
 	acc := testdb.SeedAccount(t, pool)
+	svc := catalogue.NewService(pool)
 
-	err := svc.NewProduct(ctx, catalogue.NewProductRequest{
+	err := svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: acc.TenantID,
 		Name:     "product_update_code",
 		Code:     "update_code",
@@ -247,18 +246,19 @@ func TestUpdateProduct(t *testing.T) {
 		Id:       productID,
 		Name:     "renamed_product",
 		Code:     "update_code",
-		Unit:     "pcs",
+		Unit:     "kg",
+		Note:     "renamed_note",
 	})
 	if err != nil {
 		t.Fatalf("update product: %v", err)
 	}
 
-	var name, code string
+	var name, code, unit, note string
 
 	err = pool.QueryRow(ctx,
-		`SELECT name, code FROM products WHERE tenant_id=$1 AND id=$2`,
+		`SELECT name, code, unit, note FROM products WHERE tenant_id=$1 AND id=$2`,
 		acc.TenantID, productID,
-	).Scan(&name, &code)
+	).Scan(&name, &code, &unit, &note)
 	if err != nil {
 		t.Fatalf("query product: %v", err)
 	}
@@ -270,6 +270,14 @@ func TestUpdateProduct(t *testing.T) {
 	if code != "update_code" {
 		t.Fatalf("code must not change, got %q", code)
 	}
+
+	if unit != "kg" {
+		t.Fatalf("expected unit kg, got %q", unit)
+	}
+
+	if note != "renamed_note" {
+		t.Fatalf("expected note renamed_note, got %q", note)
+	}
 }
 
 func TestUpdateProductInvalid(t *testing.T) {
@@ -280,7 +288,7 @@ func TestUpdateProductInvalid(t *testing.T) {
 	mine := testdb.SeedAccount(t, pool)
 	other := testdb.SeedAccount(t, pool)
 
-	err := svc.NewProduct(ctx, catalogue.NewProductRequest{
+	err := svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 		TenantID: other.TenantID,
 		Name:     "other_tenant_product",
 		Code:     "other_tenant_code",
@@ -301,7 +309,7 @@ func TestUpdateProductInvalid(t *testing.T) {
 	}
 
 	for _, code := range []string{"mine_code_a", "mine_code_b"} {
-		err = svc.NewProduct(ctx, catalogue.NewProductRequest{
+		err = svc.CreateProduct(ctx, catalogue.CreateProductRequest{
 			TenantID: mine.TenantID,
 			Name:     "product_" + code,
 			Code:     code,
@@ -398,7 +406,7 @@ func TestUpdateProductInvalid(t *testing.T) {
 	}
 }
 
-func TestNewLocation(t *testing.T) {
+func TestCreateLocation(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
 	acc := testdb.SeedAccount(t, pool)
@@ -409,16 +417,15 @@ func TestNewLocation(t *testing.T) {
 	address := "test_address"
 	note := "test_note"
 
-	req := catalogue.NewLocationRequest{
+	err := svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: acc.TenantID,
 		Name:     locationName,
 		Code:     locationCode,
 		Address:  address,
 		Note:     note,
-	}
-
-	if err := svc.NewLocation(ctx, req); err != nil {
-		t.Fatalf("NewLocation: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("new location: %v", err)
 	}
 
 	var storedName, storedCode, storedAddress, storedNote string
@@ -449,27 +456,27 @@ func TestNewLocation(t *testing.T) {
 	}
 }
 
-func TestNewLocationInvalid(t *testing.T) {
+func TestCreateLocationInvalid(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
 	acc := testdb.SeedAccount(t, pool)
 	svc := catalogue.NewService(pool)
 
-	req := catalogue.NewLocationRequest{
+	req := catalogue.CreateLocationRequest{
 		TenantID: acc.TenantID,
 		Name:     "test_location",
 		Code:     "duplicate_code",
 		Address:  "test_address",
 	}
 
-	if err := svc.NewLocation(ctx, req); err != nil {
-		t.Fatalf("first NewLocation: %v", err)
+	if err := svc.CreateLocation(ctx, req); err != nil {
+		t.Fatalf("first new location: %v", err)
 	}
 
 	// A second location with the same code, even under a different name.
 	req.Name = "another_location"
 
-	err := svc.NewLocation(ctx, req)
+	err := svc.CreateLocation(ctx, req)
 	if !errors.Is(err, catalogue.ErrDuplicateCode) {
 		t.Fatalf("expected %v, got %v", catalogue.ErrDuplicateCode, err)
 	}
@@ -495,7 +502,7 @@ func TestUpdateLocation(t *testing.T) {
 	acc := testdb.SeedAccount(t, pool)
 	svc := catalogue.NewService(pool)
 
-	err := svc.NewLocation(ctx, catalogue.NewLocationRequest{
+	err := svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: acc.TenantID,
 		Name:     "location_update_code",
 		Code:     "update_code",
@@ -562,7 +569,7 @@ func TestUpdateLocationInvalid(t *testing.T) {
 	mine := testdb.SeedAccount(t, pool)
 	other := testdb.SeedAccount(t, pool)
 
-	err := svc.NewLocation(ctx, catalogue.NewLocationRequest{
+	err := svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: other.TenantID,
 		Name:     "other_tenant_location",
 		Code:     "other_tenant_code",
@@ -582,7 +589,7 @@ func TestUpdateLocationInvalid(t *testing.T) {
 	}
 
 	for _, code := range []string{"mine_code_a", "mine_code_b"} {
-		err = svc.NewLocation(ctx, catalogue.NewLocationRequest{
+		err = svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 			TenantID: mine.TenantID,
 			Name:     "location_" + code,
 			Code:     code,
@@ -686,7 +693,7 @@ func TestListLocation(t *testing.T) {
 	svc := catalogue.NewService(pool)
 
 	// SeedAccount already created one active location.
-	err := svc.NewLocation(ctx, catalogue.NewLocationRequest{
+	err := svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: acc.TenantID,
 		Name:     "active_location",
 		Code:     "active_code",
@@ -724,7 +731,7 @@ func TestListLocationInvalid(t *testing.T) {
 	mine := testdb.SeedAccount(t, pool)
 	other := testdb.SeedAccount(t, pool)
 
-	err := svc.NewLocation(ctx, catalogue.NewLocationRequest{
+	err := svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: other.TenantID,
 		Name:     "other_tenant_location",
 		Code:     "other_tenant_code",
@@ -733,7 +740,7 @@ func TestListLocationInvalid(t *testing.T) {
 		t.Fatalf("new location for the other tenant: %v", err)
 	}
 
-	err = svc.NewLocation(ctx, catalogue.NewLocationRequest{
+	err = svc.CreateLocation(ctx, catalogue.CreateLocationRequest{
 		TenantID: mine.TenantID,
 		Name:     "deactivated_location",
 		Code:     "inactive_code",

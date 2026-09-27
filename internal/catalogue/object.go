@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type NewProductRequest struct {
+type CreateProductRequest struct {
 	TenantID uuid.UUID
 	Name     string
 	Code     string
@@ -34,7 +34,7 @@ type Product struct {
 	Note      string    `db:"note"`
 }
 
-type NewLocationRequest struct {
+type CreateLocationRequest struct {
 	TenantID uuid.UUID
 	Name     string
 	Code     string
