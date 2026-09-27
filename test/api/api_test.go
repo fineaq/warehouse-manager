@@ -1,5 +1,5 @@
 // Package api drives the assembled application over HTTP: router, middleware,
-// auth and stock together.
+// auth, stock and catalogue together.
 package api
 
 import (
@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"warehouse-manager/internal/auth"
+	"warehouse-manager/internal/catalogue"
 	"warehouse-manager/internal/router"
 	"warehouse-manager/internal/stock"
 	"warehouse-manager/internal/testdb"
@@ -34,7 +35,10 @@ func newServer(t *testing.T, pool *pgxpool.Pool) *gin.Engine {
 
 	return router.NewRouter(authSvc,
 		[]router.RouteRegistrar{auth.NewHandler(authSvc)},
-		[]router.RouteRegistrar{stock.NewHandler(stock.NewService(pool))},
+		[]router.RouteRegistrar{
+			stock.NewHandler(stock.NewService(pool)),
+			catalogue.NewHandler(catalogue.NewService(pool)),
+		},
 	)
 }
 
@@ -258,6 +262,231 @@ func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 
 	if movementCount != 0 {
 		t.Fatalf("expected 0 movements, got %d", movementCount)
+	}
+}
+
+func TestCreateProductThenList(t *testing.T) {
+	pool := testdb.New(t)
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	body := `{"name":"widget","code":"WID-1","unit":"pcs","note":"a widget"}`
+
+	w := do(t, engine, http.MethodPost, "/v1/products", body, token)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create product: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = do(t, engine, http.MethodGet, "/v1/products", "", token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("list products: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			Name string `json:"name"`
+			Code string `json:"code"`
+			Unit string `json:"unit"`
+			Note string `json:"note"`
+		} `json:"products"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode products: %v", err)
+	}
+
+	var found bool
+
+	for _, p := range resp.Products {
+		if p.Code == "WID-1" {
+			found = true
+
+			if p.Name != "widget" || p.Unit != "pcs" || p.Note != "a widget" {
+				t.Fatalf("stored product mismatch: %+v", p)
+			}
+		}
+	}
+
+	if !found {
+		t.Fatalf("created product not in list: %s", w.Body.String())
+	}
+}
+
+func TestCreateProductRejectsDuplicateCode(t *testing.T) {
+	pool := testdb.New(t)
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	body := `{"name":"first","code":"DUP","unit":"pcs","note":"first note"}`
+
+	w := do(t, engine, http.MethodPost, "/v1/products", body, token)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("first create: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body = `{"name":"second","code":"DUP","unit":"pcs","note":"second note"}`
+
+	w = do(t, engine, http.MethodPost, "/v1/products", body, token)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("duplicate code: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProduct(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	body := `{"name":"before","code":"UPD","unit":"pcs","note":"old note"}`
+
+	w := do(t, engine, http.MethodPost, "/v1/products", body, token)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var id uuid.UUID
+
+	err := pool.QueryRow(ctx,
+		`SELECT id FROM products WHERE tenant_id=$1 AND code=$2`,
+		acc.TenantID, "UPD").Scan(&id)
+	if err != nil {
+		t.Fatalf("query product id: %v", err)
+	}
+
+	body = `{"name":"after","code":"UPD","unit":"kg","note":"new note"}`
+
+	w = do(t, engine, http.MethodPut, "/v1/products/"+id.String(), body, token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var name, unit, note string
+
+	err = pool.QueryRow(ctx,
+		`SELECT name, unit, note FROM products WHERE tenant_id=$1 AND id=$2`,
+		acc.TenantID, id).Scan(&name, &unit, &note)
+	if err != nil {
+		t.Fatalf("query product: %v", err)
+	}
+
+	if name != "after" || unit != "kg" || note != "new note" {
+		t.Fatalf("product not updated: name=%q unit=%q note=%q", name, unit, note)
+	}
+}
+
+func TestUpdateProductInvalid(t *testing.T) {
+	pool := testdb.New(t)
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	body := `{"name":"x","code":"x","unit":"pcs","note":"a note"}`
+
+	tests := []struct {
+		name     string
+		id       string
+		wantCode int
+	}{
+		{"unknown id", uuid.New().String(), http.StatusNotFound},
+		{"malformed id", "not-a-uuid", http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(t, engine, http.MethodPut, "/v1/products/"+tc.id, body, token)
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("expected %d, got %d: %s", tc.wantCode, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateLocationThenList(t *testing.T) {
+	pool := testdb.New(t)
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	body := `{"name":"dock","code":"LOC-1","address":"12 Main St","note":"loading dock"}`
+
+	w := do(t, engine, http.MethodPost, "/v1/locations", body, token)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create location: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = do(t, engine, http.MethodGet, "/v1/locations", "", token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("list locations: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Locations []struct {
+			Code    string `json:"code"`
+			Address string `json:"address"`
+		} `json:"locations"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode locations: %v", err)
+	}
+
+	var found bool
+
+	for _, l := range resp.Locations {
+		if l.Code == "LOC-1" {
+			found = true
+
+			if l.Address != "12 Main St" {
+				t.Fatalf("stored address mismatch: %q", l.Address)
+			}
+		}
+	}
+
+	if !found {
+		t.Fatalf("created location not in list: %s", w.Body.String())
+	}
+}
+
+func TestCatalogueEndpointsRejectRequestWithoutToken(t *testing.T) {
+	pool := testdb.New(t)
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+
+	product := `{"name":"n","code":"c","unit":"pcs","note":""}`
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{"list products", http.MethodGet, "/v1/products", ""},
+		{"create product", http.MethodPost, "/v1/products", product},
+		{"update product", http.MethodPut, "/v1/products/" + acc.ProductID.String(), product},
+		{"list locations", http.MethodGet, "/v1/locations", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(t, engine, tc.method, tc.path, tc.body, "")
+
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
