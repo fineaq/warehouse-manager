@@ -5,7 +5,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -22,15 +22,18 @@ const (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Fatal("DATABASE_URL not set")
+		slog.Error("DATABASE_URL not set")
+		os.Exit(1)
 	}
 
 	password := os.Getenv("ADMIN_PASSWORD")
 	if password == "" {
 		password = "admin"
-		log.Println("ADMIN_PASSWORD not set, using the default development password")
+		slog.Warn("ADMIN_PASSWORD not set, using the default development password")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -38,13 +41,15 @@ func main() {
 
 	pool, err := db.NewPool(ctx, dsn)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		slog.Error("connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		log.Fatalf("hash password: %v", err)
+		slog.Error("hash password", "error", err)
+		os.Exit(1)
 	}
 
 	var tenantID, userID uuid.UUID
@@ -84,8 +89,9 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatalf("seed: %v", err)
+		slog.Error("seed", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("seeded %s: tenant %s, user %s", adminEmail, tenantID, userID)
+	slog.Info("seeded admin account", "email", adminEmail, "tenant_id", tenantID, "user_id", userID)
 }

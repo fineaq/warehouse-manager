@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -39,6 +40,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (string, error) {
 
 	jwtToken, err = s.issueToken(userID, tenantID)
 	if err != nil {
+		slog.ErrorContext(ctx, "issue token", "error", err, "user_id", userID)
 		return "", err
 	}
 

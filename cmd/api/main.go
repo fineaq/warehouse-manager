@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -13,9 +13,12 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Fatal("DATABASE_URL not set")
+		slog.Error("DATABASE_URL not set")
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -23,18 +26,21 @@ func main() {
 
 	pool, err := db.NewPool(ctx, dsn)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		slog.Error("connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
-	log.Println("database connected")
+	slog.Info("database connected")
 
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		log.Fatal("JWT_SECRET not set")
+		slog.Error("JWT_SECRET not set")
+		os.Exit(1)
 	}
 
 	if len(secret) < 32 {
-		log.Fatal("JWT_SECRET invalid length")
+		slog.Error("JWT_SECRET invalid length")
+		os.Exit(1)
 	}
 
 	authSvc := auth.NewService(pool, []byte(secret))
@@ -55,7 +61,8 @@ func main() {
 		publicRegistrars,
 		protectedRegistrars)
 	if err := r.Run(":8080"); err != nil {
-		log.Fatalf("server: %v", err)
+		slog.Error("server", "error", err)
+		os.Exit(1)
 	}
 
 }

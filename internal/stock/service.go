@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"warehouse-manager/internal/db"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +53,7 @@ func (s *Service) Receive(ctx context.Context, req ReceiveRequest) error {
 	}
 
 	if err := db.WithTx(ctx, s.pool, fn); err != nil {
-		return translateFKViolation(err)
+		return translateFKViolation(ctx, err)
 	}
 
 	return nil
@@ -72,6 +73,8 @@ func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decima
 		if errors.Is(err, pgx.ErrNoRows) {
 			return decimal.Zero, nil
 		}
+		slog.ErrorContext(ctx, "read on hand", "error", err,
+			"tenant_id", req.TenantID, "product_id", req.ProductID, "location_id", req.LocationID)
 		return decimal.Zero, err
 	}
 
@@ -79,10 +82,11 @@ func (s *Service) OnHand(ctx context.Context, req OnHandRequest) (decimal.Decima
 
 }
 
-func translateFKViolation(err error) error {
+func translateFKViolation(ctx context.Context, err error) error {
 	var pgErr *pgconn.PgError
 
 	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		slog.ErrorContext(ctx, "receive stock", "error", err)
 		return err
 	}
 
@@ -98,5 +102,8 @@ func translateFKViolation(err error) error {
 	case "stock_movements_tenant_id_user_id_fkey":
 		return fmt.Errorf("%w: %s", ErrUserNotFound, pgErr.ConstraintName)
 	}
+
+	slog.ErrorContext(ctx, "receive stock: unrecognized foreign key violation",
+		"error", err, "constraint", pgErr.ConstraintName)
 	return err
 }
