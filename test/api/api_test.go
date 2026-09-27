@@ -81,9 +81,7 @@ func login(t *testing.T, engine *gin.Engine, email string) string {
 
 func TestStockEndpointsRejectRequestWithoutToken(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
 	engine := newServer(t, pool)
 
@@ -131,9 +129,7 @@ func TestStockEndpointsRejectRequestWithoutToken(t *testing.T) {
 
 func TestReceiveStoresIdentityFromToken(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
 	engine := newServer(t, pool)
 	token := login(t, engine, acc.Email)
@@ -184,7 +180,6 @@ func TestReceiveStoresIdentityFromToken(t *testing.T) {
 
 func TestReceiveThenReadOnHand(t *testing.T) {
 	pool := testdb.New(t)
-
 	acc := testdb.SeedAccount(t, pool)
 	engine := newServer(t, pool)
 	token := login(t, engine, acc.Email)
@@ -222,9 +217,7 @@ func TestReceiveThenReadOnHand(t *testing.T) {
 
 func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
 	engine := newServer(t, pool)
 	token := login(t, engine, acc.Email)

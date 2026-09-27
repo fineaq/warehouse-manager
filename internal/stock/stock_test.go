@@ -13,11 +13,8 @@ import (
 
 func TestReceive(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
-
 	svc := stock.NewService(pool)
 
 	tests := []struct {
@@ -51,7 +48,7 @@ func TestReceive(t *testing.T) {
 			})
 
 			if err != nil {
-				t.Fatalf("receive : %v", err)
+				t.Fatalf("receive: %v", err)
 			}
 
 			var onhand decimal.Decimal
@@ -67,7 +64,7 @@ func TestReceive(t *testing.T) {
 			}
 
 			if !onhand.Equal(decimal.NewFromInt(tc.wantOnHand)) {
-				t.Fatalf("expected on_hand %d got %s", tc.wantOnHand, onhand)
+				t.Fatalf("expected on_hand %d, got %s", tc.wantOnHand, onhand)
 			}
 
 			var movementCount int
@@ -98,11 +95,8 @@ func TestReceive(t *testing.T) {
 
 func TestReceiveInvalid(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
-
 	svc := stock.NewService(pool)
 
 	tests := []struct {
@@ -171,12 +165,8 @@ func TestReceiveInvalid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := svc.Receive(ctx, tc.req)
 
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-
-			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
-				t.Fatalf("expected error %v, got %v", tc.wantErr, err)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
 			}
 		})
 	}
@@ -208,11 +198,8 @@ func TestReceiveInvalid(t *testing.T) {
 
 func TestOnHand(t *testing.T) {
 	pool := testdb.New(t)
-
 	ctx := context.Background()
-
 	acc := testdb.SeedAccount(t, pool)
-
 	svc := stock.NewService(pool)
 
 	receive := func(qty int64) {

@@ -3,7 +3,6 @@ package auth_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 	"warehouse-manager/internal/auth"
@@ -11,57 +10,17 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var testSecret = []byte("test-only-jwt-secret-at-least-32-bytes-long")
 
-// seedUser creates a tenant and a user whose password is known, and returns
-// their IDs.
-func seedUser(t *testing.T, pool *pgxpool.Pool, password string) (email string, tenantID, userID uuid.UUID) {
-	t.Helper()
-
-	ctx := context.Background()
-	email = fmt.Sprintf("user-%s@test.co", uuid.New())
-
-	// MinCost keeps the test fast; production cost is irrelevant here.
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
-	if err != nil {
-		t.Fatalf("hash password: %v", err)
-	}
-
-	err = pool.QueryRow(ctx,
-		`INSERT INTO tenants (name, email) VALUES ('test_tenant', $1) RETURNING id`,
-		email,
-	).Scan(&tenantID)
-	if err != nil {
-		t.Fatalf("seed tenant: %v", err)
-	}
-
-	err = pool.QueryRow(ctx,
-		`INSERT INTO users (tenant_id, name, email, password_hash)
-		 VALUES ($1, 'test_user', $2, $3)
-		 RETURNING id`,
-		tenantID, email, string(hash),
-	).Scan(&userID)
-	if err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
-
-	return email, tenantID, userID
-}
-
 func TestLogin(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
-
-	const password = "thisisapassword"
-	email, tenantID, userID := seedUser(t, pool, password)
-
+	acc := testdb.SeedAccount(t, pool)
 	svc := auth.NewService(pool, testSecret)
 
-	token, err := svc.Login(ctx, auth.LoginRequest{Email: email, Password: password})
+	token, err := svc.Login(ctx, auth.LoginRequest{Email: acc.Email, Password: testdb.Password})
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
@@ -75,12 +34,12 @@ func TestLogin(t *testing.T) {
 		t.Fatalf("parse token: %v", err)
 	}
 
-	if claims.Subject != userID.String() {
-		t.Fatalf("expected sub %s, got %s", userID, claims.Subject)
+	if claims.Subject != acc.UserID.String() {
+		t.Fatalf("expected sub %s, got %s", acc.UserID, claims.Subject)
 	}
 
-	if claims.TenantID != tenantID.String() {
-		t.Fatalf("expected tenant_id %s, got %s", tenantID, claims.TenantID)
+	if claims.TenantID != acc.TenantID.String() {
+		t.Fatalf("expected tenant_id %s, got %s", acc.TenantID, claims.TenantID)
 	}
 
 	if claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) {
@@ -91,10 +50,7 @@ func TestLogin(t *testing.T) {
 func TestLoginInvalid(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
-
-	const password = "correct-horse-battery-staple"
-	email, _, _ := seedUser(t, pool, password)
-
+	acc := testdb.SeedAccount(t, pool)
 	svc := auth.NewService(pool, testSecret)
 
 	tests := []struct {
@@ -103,11 +59,11 @@ func TestLoginInvalid(t *testing.T) {
 	}{
 		{
 			name: "wrong password",
-			req:  auth.LoginRequest{Email: email, Password: "wrong-password"},
+			req:  auth.LoginRequest{Email: acc.Email, Password: "wrong-password"},
 		},
 		{
 			name: "unknown email",
-			req:  auth.LoginRequest{Email: "nobody@test.co", Password: password},
+			req:  auth.LoginRequest{Email: "nobody@test.co", Password: testdb.Password},
 		},
 	}
 
@@ -116,7 +72,7 @@ func TestLoginInvalid(t *testing.T) {
 			token, err := svc.Login(ctx, tc.req)
 
 			if !errors.Is(err, auth.ErrInvalidCredentials) {
-				t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+				t.Fatalf("expected %v, got %v", auth.ErrInvalidCredentials, err)
 			}
 
 			if token != "" {
