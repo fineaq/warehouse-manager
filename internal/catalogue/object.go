@@ -61,6 +61,40 @@ type Location struct {
 	Note      string    `db:"note"`
 }
 
+type createProductJSON struct {
+	Name string `json:"name" binding:"required"`
+	Code string `json:"code" binding:"required"`
+	Unit string `json:"unit" binding:"required"`
+	Note string `json:"note" binding:"required"`
+}
+
+type createLocationJSON struct {
+	Name    string `json:"name" binding:"required"`
+	Code    string `json:"code" binding:"required"`
+	Address string `json:"address" binding:"required"`
+	Note    string `json:"note" binding:"required"`
+}
+
+type productsJSON struct {
+	Id        uuid.UUID `json:"id"`
+	Name      string    `json:"name" binding:"required"`
+	Code      string    `json:"code" binding:"required"`
+	Unit      string    `json:"unit" binding:"required"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Note      string    `json:"note" binding:"required"`
+}
+
+type locationsJSON struct {
+	Id        uuid.UUID `json:"id"`
+	Name      string    `json:"name" binding:"required"`
+	Code      string    `json:"code" binding:"required"`
+	Address   string    `json:"address" binding:"required"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Note      string    `json:"note" binding:"required"`
+}
+
 var (
 	ErrDuplicateCode    = errors.New("duplicate product code")
 	ErrProductNotFound  = errors.New("product not found")

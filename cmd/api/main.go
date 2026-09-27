@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"warehouse-manager/internal/auth"
+	"warehouse-manager/internal/catalogue"
 	"warehouse-manager/internal/db"
 	"warehouse-manager/internal/router"
 	"warehouse-manager/internal/stock"
@@ -44,9 +45,11 @@ func main() {
 	}
 
 	authSvc := auth.NewService(pool, []byte(secret))
+	catalogueSvc := catalogue.NewService(pool)
 	stockSvc := stock.NewService(pool)
 
 	authH := auth.NewHandler(authSvc)
+	catalogueH := catalogue.NewHandler(catalogueSvc)
 	stockH := stock.NewHandler(stockSvc)
 
 	publicRegistrars := []router.RouteRegistrar{
@@ -54,6 +57,7 @@ func main() {
 	}
 
 	protectedRegistrars := []router.RouteRegistrar{
+		catalogueH,
 		stockH,
 	}
 
