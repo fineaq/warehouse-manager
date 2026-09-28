@@ -180,7 +180,7 @@ func (h *Handler) HandleListProducts(c *gin.Context) {
 
 	out := make([]productsJSON, len(products))
 	for i, p := range products {
-		out[i] = productsJSON{Id: p.Id, Name: p.Name, Code: p.Code, Unit: p.Unit, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Note: p.Note}
+		out[i] = productsJSON(p)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"products": out})
@@ -201,7 +201,7 @@ func (h *Handler) HandleListLocations(c *gin.Context) {
 
 	out := make([]locationsJSON, len(locations))
 	for i, p := range locations {
-		out[i] = locationsJSON{Id: p.Id, Name: p.Name, Code: p.Code, Address: p.Address, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Note: p.Note}
+		out[i] = locationsJSON(p)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"locations": out})
