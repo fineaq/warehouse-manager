@@ -231,6 +231,24 @@ func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 			locationID, productID, quantity)
 	}
 
+	var inactiveProductID, inactiveLocationID uuid.UUID
+
+	err := pool.QueryRow(ctx,
+		`INSERT INTO products (tenant_id, name, code, unit, active)
+		 VALUES ($1, 'inactive_product', 'inactive_product_code', 'pcs', false) RETURNING id`,
+		acc.TenantID).Scan(&inactiveProductID)
+	if err != nil {
+		t.Fatalf("seed inactive product: %v", err)
+	}
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO locations (tenant_id, name, code, active)
+		 VALUES ($1, 'inactive_location', 'inactive_location_code', false) RETURNING id`,
+		acc.TenantID).Scan(&inactiveLocationID)
+	if err != nil {
+		t.Fatalf("seed inactive location: %v", err)
+	}
+
 	tests := []struct {
 		name string
 		body string
@@ -239,6 +257,8 @@ func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 		{"negative quantity", receipt(acc.LocationID, acc.ProductID, "-5")},
 		{"unknown product", receipt(acc.LocationID, uuid.New(), "20")},
 		{"unknown location", receipt(uuid.New(), acc.ProductID, "20")},
+		{"inactive product", receipt(acc.LocationID, inactiveProductID, "20")},
+		{"inactive location", receipt(inactiveLocationID, acc.ProductID, "20")},
 	}
 
 	for _, tc := range tests {
@@ -253,7 +273,7 @@ func TestReceiveRejectsInvalidReceipt(t *testing.T) {
 
 	var movementCount int
 
-	err := pool.QueryRow(ctx,
+	err = pool.QueryRow(ctx,
 		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
 		acc.TenantID).Scan(&movementCount)
 	if err != nil {

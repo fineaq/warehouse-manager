@@ -107,6 +107,15 @@ func respondError(c *gin.Context, err error) {
 	case errors.Is(err, ErrLocationNotFound):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "unknown location"})
 
+	case errors.Is(err, ErrProductInactive):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "product is inactive"})
+
+	case errors.Is(err, ErrLocationInactive):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "location is inactive"})
+
+	case errors.Is(err, ErrReceiveRejected):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "unknown or inactive product or location"})
+
 	// The client gave up; nothing will read this response.
 	case errors.Is(err, context.Canceled):
 		c.AbortWithStatus(499)

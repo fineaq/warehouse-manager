@@ -38,4 +38,7 @@ var (
 	ErrProductNotFound  = errors.New("product not found")
 	ErrLocationNotFound = errors.New("location not found")
 	ErrUserNotFound     = errors.New("user not found")
+	ErrProductInactive  = errors.New("product is inactive")
+	ErrLocationInactive = errors.New("location is inactive")
+	ErrReceiveRejected  = errors.New("product or location is inactive or missing")
 )

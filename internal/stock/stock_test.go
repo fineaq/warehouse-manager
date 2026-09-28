@@ -99,11 +99,49 @@ func TestReceiveInvalid(t *testing.T) {
 	acc := testdb.SeedAccount(t, pool)
 	svc := stock.NewService(pool)
 
+	var inactiveProductID, inactiveLocationID uuid.UUID
+
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO products (tenant_id, name, code, unit, active)
+		 VALUES ($1, 'inactive_product', 'inactive_product_code', 'pcs', false) RETURNING id`,
+		acc.TenantID).Scan(&inactiveProductID); err != nil {
+		t.Fatalf("seed inactive product: %v", err)
+	}
+
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO locations (tenant_id, name, code, active)
+		 VALUES ($1, 'inactive_location', 'inactive_location_code', false) RETURNING id`,
+		acc.TenantID).Scan(&inactiveLocationID); err != nil {
+		t.Fatalf("seed inactive location: %v", err)
+	}
+
 	tests := []struct {
 		name    string
 		req     stock.ReceiveRequest
 		wantErr error
 	}{
+		{
+			name: "inactive product",
+			req: stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  inactiveProductID,
+				LocationID: acc.LocationID,
+				Quantity:   decimal.NewFromInt(20),
+			},
+			wantErr: stock.ErrProductInactive,
+		},
+		{
+			name: "inactive location",
+			req: stock.ReceiveRequest{
+				TenantID:   acc.TenantID,
+				UserID:     acc.UserID,
+				ProductID:  acc.ProductID,
+				LocationID: inactiveLocationID,
+				Quantity:   decimal.NewFromInt(20),
+			},
+			wantErr: stock.ErrLocationInactive,
+		},
 		{
 			name: "zero quantity",
 			req: stock.ReceiveRequest{
@@ -173,10 +211,9 @@ func TestReceiveInvalid(t *testing.T) {
 
 	var movementCount, balanceCount int
 
-	err := pool.QueryRow(ctx,
+	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
-		acc.TenantID).Scan(&movementCount)
-	if err != nil {
+		acc.TenantID).Scan(&movementCount); err != nil {
 		t.Fatalf("query movements: %v", err)
 	}
 
@@ -184,10 +221,9 @@ func TestReceiveInvalid(t *testing.T) {
 		t.Fatalf("expected 0 movements, got %d", movementCount)
 	}
 
-	err = pool.QueryRow(ctx,
+	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM stock_balances WHERE tenant_id=$1`,
-		acc.TenantID).Scan(&balanceCount)
-	if err != nil {
+		acc.TenantID).Scan(&balanceCount); err != nil {
 		t.Fatalf("query balances: %v", err)
 	}
 
