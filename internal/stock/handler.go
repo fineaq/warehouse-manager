@@ -20,7 +20,45 @@ func NewHandler(service *Service) *Handler {
 
 func (h Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/receipts", h.HandleReceive)
+	rg.POST("/issue", h.HandleIssue)
 	rg.GET("/on-hand", h.HandleOnHand)
+}
+
+func (h *Handler) HandleIssue(c *gin.Context) {
+	var body issueJSON
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	userID, ok := middleware.UserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	tenantID, ok := middleware.TenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	req := IssueRequest{
+		TenantID:   tenantID,
+		UserID:     userID,
+		LocationID: body.LocationID,
+		ProductID:  body.ProductID,
+		Quantity:   body.Quantity,
+		Reason:     body.Reason,
+		Note:       body.Note,
+	}
+
+	if err := h.service.Issue(c.Request.Context(), req); err != nil {
+		respondError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"status": "ok"})
 }
 
 func (h *Handler) HandleReceive(c *gin.Context) {
@@ -109,6 +147,12 @@ func respondError(c *gin.Context, err error) {
 
 	case errors.Is(err, ErrProductInactive):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "product is inactive"})
+
+	case errors.Is(err, ErrInvalidReason):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "reason is not valid for an issue"})
+
+	case errors.Is(err, ErrInsufficientStock):
+		c.JSON(http.StatusConflict, gin.H{"error": "not enough stock at this position"})
 
 	case errors.Is(err, ErrLocationInactive):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "location is inactive"})
