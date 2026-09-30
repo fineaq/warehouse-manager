@@ -302,6 +302,175 @@ func TestOnHand(t *testing.T) {
 	}
 }
 
+func TestIssue(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	acc := testdb.SeedAccount(t, pool)
+	svc := stock.NewService(pool)
+
+	err := svc.Receive(ctx, stock.ReceiveRequest{
+		TenantID:   acc.TenantID,
+		UserID:     acc.UserID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
+		Quantity:   decimal.NewFromInt(20),
+	})
+	if err != nil {
+		t.Fatalf("receive: %v", err)
+	}
+
+	err = svc.Issue(ctx, stock.IssueRequest{
+		TenantID:   acc.TenantID,
+		UserID:     acc.UserID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
+		Quantity:   decimal.NewFromInt(5),
+		Reason:     stock.ReasonIssue,
+		Note:       "sold to a customer",
+	})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	onHand, err := svc.OnHand(ctx, stock.OnHandRequest{
+		TenantID:   acc.TenantID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
+	})
+	if err != nil {
+		t.Fatalf("on hand: %v", err)
+	}
+
+	if !onHand.Equal(decimal.NewFromInt(15)) {
+		t.Fatalf("expected on hand 15, got %s", onHand)
+	}
+
+	// Stock leaving is recorded as a negative movement.
+	var issued decimal.Decimal
+
+	err = pool.QueryRow(ctx,
+		`SELECT quantity FROM stock_movements
+		 WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3 AND reason='issue'`,
+		acc.TenantID, acc.ProductID, acc.LocationID,
+	).Scan(&issued)
+	if err != nil {
+		t.Fatalf("query issue movement: %v", err)
+	}
+
+	if !issued.Equal(decimal.NewFromInt(-5)) {
+		t.Fatalf("expected movement -5, got %s", issued)
+	}
+
+	// On hand must equal the sum of the movements behind it.
+	var movementSum decimal.Decimal
+
+	err = pool.QueryRow(ctx,
+		`SELECT coalesce(sum(quantity), 0) FROM stock_movements
+		 WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
+		acc.TenantID, acc.ProductID, acc.LocationID,
+	).Scan(&movementSum)
+	if err != nil {
+		t.Fatalf("sum movements: %v", err)
+	}
+
+	if !movementSum.Equal(onHand) {
+		t.Fatalf("movements sum to %s but on hand is %s", movementSum, onHand)
+	}
+}
+
+func TestIssueInvalid(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	acc := testdb.SeedAccount(t, pool)
+	svc := stock.NewService(pool)
+
+	err := svc.Receive(ctx, stock.ReceiveRequest{
+		TenantID:   acc.TenantID,
+		UserID:     acc.UserID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
+		Quantity:   decimal.NewFromInt(20),
+	})
+	if err != nil {
+		t.Fatalf("receive: %v", err)
+	}
+
+	// A product of the same tenant that never received anything.
+	var emptyProductID uuid.UUID
+
+	err = pool.QueryRow(ctx,
+		`INSERT INTO products (tenant_id, name, code, unit)
+		 VALUES ($1, 'empty_product', 'empty_product_code', 'pcs') RETURNING id`,
+		acc.TenantID).Scan(&emptyProductID)
+	if err != nil {
+		t.Fatalf("seed empty product: %v", err)
+	}
+
+	issue := func(quantity int64, reason stock.Reason, note string) stock.IssueRequest {
+		return stock.IssueRequest{
+			TenantID:   acc.TenantID,
+			UserID:     acc.UserID,
+			ProductID:  acc.ProductID,
+			LocationID: acc.LocationID,
+			Quantity:   decimal.NewFromInt(quantity),
+			Reason:     reason,
+			Note:       note,
+		}
+	}
+
+	noStock := issue(1, stock.ReasonIssue, "sold")
+	noStock.ProductID = emptyProductID
+
+	tests := []struct {
+		name    string
+		req     stock.IssueRequest
+		wantErr error
+	}{
+		{"zero quantity", issue(0, stock.ReasonIssue, "sold"), stock.ErrInvalidQuantity},
+		{"negative quantity", issue(-5, stock.ReasonIssue, "sold"), stock.ErrInvalidQuantity},
+		{"reason that is not an issue", issue(5, stock.ReasonReceive, "sold"), stock.ErrInvalidReason},
+		{"more than on hand", issue(25, stock.ReasonIssue, "sold"), stock.ErrInsufficientStock},
+		{"no stock at the position", noStock, stock.ErrInsufficientStock},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.Issue(ctx, tc.req)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+
+	// Nothing may have left: only the receipt remains, on hand untouched.
+	var movementCount int
+
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
+		acc.TenantID).Scan(&movementCount)
+	if err != nil {
+		t.Fatalf("count movements: %v", err)
+	}
+
+	if movementCount != 1 {
+		t.Fatalf("expected 1 movement, got %d", movementCount)
+	}
+
+	onHand, err := svc.OnHand(ctx, stock.OnHandRequest{
+		TenantID:   acc.TenantID,
+		ProductID:  acc.ProductID,
+		LocationID: acc.LocationID,
+	})
+	if err != nil {
+		t.Fatalf("on hand: %v", err)
+	}
+
+	if !onHand.Equal(decimal.NewFromInt(20)) {
+		t.Fatalf("expected on hand 20, got %s", onHand)
+	}
+}
+
 func TestMain(m *testing.M) {
 	testdb.Main(m)
 }

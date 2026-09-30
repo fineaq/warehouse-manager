@@ -104,6 +104,7 @@ func TestStockEndpointsRejectRequestWithoutToken(t *testing.T) {
 	}{
 		{"receipt without a token", http.MethodPost, "/v1/receipts", receipt, ""},
 		{"receipt with a token that is not a JWT", http.MethodPost, "/v1/receipts", receipt, "not-a-token"},
+		{"issue without a token", http.MethodPost, "/v1/issue", receipt, ""},
 		{"on hand without a token", http.MethodGet, onHand, "", ""},
 	}
 
@@ -507,6 +508,122 @@ func TestCatalogueEndpointsRejectRequestWithoutToken(t *testing.T) {
 				t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestIssueThenReadOnHand(t *testing.T) {
+	pool := testdb.New(t)
+
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	receipt := fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":20}`,
+		acc.LocationID, acc.ProductID)
+
+	w := do(t, engine, http.MethodPost, "/v1/receipts", receipt, token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("receipt: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	issue := fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":5,"reason":"issue","note":"sold"}`,
+		acc.LocationID, acc.ProductID)
+
+	w = do(t, engine, http.MethodPost, "/v1/issue", issue, token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("issue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	onHand := fmt.Sprintf("/v1/on-hand?product_id=%s&location_id=%s",
+		acc.ProductID, acc.LocationID)
+
+	w = do(t, engine, http.MethodGet, onHand, "", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("on hand: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Quantity decimal.Decimal `json:"quantity"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode on hand response: %v", err)
+	}
+
+	if !resp.Quantity.Equal(decimal.NewFromInt(15)) {
+		t.Fatalf("expected quantity 15, got %s: %s", resp.Quantity, w.Body.String())
+	}
+}
+
+func TestIssueRejectsInvalidIssue(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+
+	acc := testdb.SeedAccount(t, pool)
+	engine := newServer(t, pool)
+	token := login(t, engine, acc.Email)
+
+	receipt := fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":20}`,
+		acc.LocationID, acc.ProductID)
+
+	w := do(t, engine, http.MethodPost, "/v1/receipts", receipt, token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("receipt: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	issue := func(productID uuid.UUID, quantity, reason string) string {
+		return fmt.Sprintf(`{"location_id":%q,"product_id":%q,"quantity":%s,"reason":%q,"note":"sold"}`,
+			acc.LocationID, productID, quantity, reason)
+	}
+
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"zero quantity", issue(acc.ProductID, "0", "issue"), http.StatusUnprocessableEntity},
+		{"negative quantity", issue(acc.ProductID, "-5", "issue"), http.StatusUnprocessableEntity},
+		{"reason that is not an issue", issue(acc.ProductID, "5", "receive"), http.StatusUnprocessableEntity},
+		{"unknown product", issue(uuid.New(), "5", "issue"), http.StatusUnprocessableEntity},
+		{"more than on hand", issue(acc.ProductID, "25", "issue"), http.StatusConflict},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(t, engine, http.MethodPost, "/v1/issue", tc.body, token)
+
+			if w.Code != tc.want {
+				t.Fatalf("expected %d, got %d: %s", tc.want, w.Code, w.Body.String())
+			}
+		})
+	}
+
+	// Only the receipt may have been stored, and it must be untouched.
+	var movementCount int
+
+	err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM stock_movements WHERE tenant_id=$1`,
+		acc.TenantID).Scan(&movementCount)
+	if err != nil {
+		t.Fatalf("count movements: %v", err)
+	}
+
+	if movementCount != 1 {
+		t.Fatalf("expected 1 movement, got %d", movementCount)
+	}
+
+	var onHand decimal.Decimal
+
+	err = pool.QueryRow(ctx,
+		`SELECT on_hand FROM stock_balances
+		 WHERE tenant_id=$1 AND product_id=$2 AND location_id=$3`,
+		acc.TenantID, acc.ProductID, acc.LocationID).Scan(&onHand)
+	if err != nil {
+		t.Fatalf("query balance: %v", err)
+	}
+
+	if !onHand.Equal(decimal.NewFromInt(20)) {
+		t.Fatalf("expected on hand 20, got %s", onHand)
 	}
 }
 
